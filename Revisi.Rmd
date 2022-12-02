@@ -1,0 +1,683 @@
+---
+title: "RevisiProject"
+author: "Gilang"
+date: "2022-11-28"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+setwd("D:/ProjectDs")
+library(e1071)
+library(caret)
+library(rtweet)
+library(twitteR)
+library(ROAuth)
+library(dplyr)
+library(tidyr)
+library(shiny) #package shiny
+library(syuzhet) #package analisis sentimen
+library(wordcloud2) #package wordcloud
+library(readr)
+library(tm)
+library(wordcloud)
+
+```
+
+```{r}
+
+
+
+ token <- create_token(
+   app =  "projek-akhir-DS",
+   consumer_key = "DBHDF0qEC4dicam0mNEtEq8ff",
+   consumer_secret = "BbxW5rj19JB1NR116hJLBREGsQGUTPPen0PT0QjWltg3NLh4IH",
+   access_token = "1146605926264086528-zJ9NJUhBMahgiuwqt2oXRdhOQGr3za",
+   access_secret = "xpUoR0ZiT840uJ7NM5jEh24tuDYwF79qKKiwnC8hkkeCt"
+ )
+ 
+ 
+
+```
+
+```{r}
+keywoard<-"election USA 2024"
+jumlah_tweet <- 1500
+type <- "recent"
+bahasa <- "en"
+
+retweet <- FALSE
+
+ UsaElection <- search_tweets(
+   keywoard,
+   n= jumlah_tweet ,
+   include_rts = retweet ,
+   type = type,
+   lang = bahasa ,
+   retryonratelimit = FALSE
+ )
+ biden <- search_tweets(
+   "Joe Biden 2024",
+   n= jumlah_tweet ,
+   include_rts = retweet ,
+   type = type,
+   lang = bahasa ,
+   retryonratelimit = FALSE
+ )
+ trump <- search_tweets(
+   "Donald Trump 2024",
+   n= jumlah_tweet ,
+   include_rts = retweet ,
+   type = type,
+   lang = bahasa ,
+   retryonratelimit = FALSE
+ )
+
+write_csv(UsaElection, "C:/Users/Christian Sirait/Desktop/kuli dan yeah/Semester 5/Data Science/Praktikum/ProjectDs/data-raw/UsaElectiontwt.csv")
+write_csv(biden, "C:/Users/Christian Sirait/Desktop/kuli dan yeah/Semester 5/Data Science/Praktikum/ProjectDs/data-raw/bidentwt.csv")
+write_csv(trump, "C:/Users/Christian Sirait/Desktop/kuli dan yeah/Semester 5/Data Science/Praktikum/ProjectDs/data-raw/trumptwt.csv")
+
+
+
+```
+
+
+```{r}
+electionraw <- read.csv("data-raw/UsaElectiontwt.csv")
+bidenraw <- read.csv("data-raw/bidentwt.csv")
+trumpraw <- read.csv("data-raw/trumptwt.csv")
+
+
+data_raw <- rbind(electionraw,bidenraw,trumpraw)
+write_csv(trump, "C:/Users/Christian Sirait/Desktop/kuli dan yeah/Semester 5/Data Science/Praktikum/ProjectDs/data-raw/data-raw.csv")
+
+```
+
+```{r}
+tweetpilpres <- read.csv("data-raw/data-raw.csv")
+tweetpilpres <- tweetpilpres %>% select(text)
+tweetpilpres
+
+kalimat2 <- tweetpilpres
+
+#skoring
+positif <- scan("positiveword.txt",what="character",comment.char=";")
+negatif <- scan("negativeword.txt",what="character",comment.char=";")
+kata.positif = c(positif)
+kata.negatif = c(negatif)
+score.sentiment = function(kalimat2, kata.positif, kata.negatif, .progress='none')
+{
+  require(plyr)
+  require(stringr)
+  scores = laply(kalimat2, function(kalimat, kata.positif, kata.negatif) {
+
+    
+    list.kata = str_split(kalimat, '\\s+')
+    kata2 = unlist(list.kata)
+    positif.matches = match(kata2, kata.positif)
+    negatif.matches = match(kata2, kata.negatif)
+    positif.matches = !is.na(positif.matches)
+    negatif.matches = !is.na(negatif.matches)
+    score = sum(positif.matches) - (sum(negatif.matches))
+    return(score)
+  }, kata.positif, kata.negatif, .progress=.progress )
+  scores.df = data.frame(score=scores, text=kalimat2)
+  return(scores.df)
+}
+hasil = score.sentiment(kalimat2$text, kata.positif, kata.negatif)
+View(hasil)
+#CONVERT SCORE TO SENTIMENT
+hasil$polarity<- ifelse(hasil$score<0, "Negatif",ifelse(hasil$score==0,"Netral","Positif"))
+hasil$polarity
+View(hasil)
+#EXCHANGE ROW SEQUENCE
+data_labeling <- hasil[c(2,1,3)]
+View(data_labeling)
+write.csv(data_labeling, file = "Labeling Data Pilpres.csv")
+
+```
+
+```{r}
+#menampilkan semua tweet yang kita mining
+tweetpilpres <- read.csv("Labeling Data Pilpres.csv")
+tweetpilpres
+temp <- tweetpilpres$text
+data <- Corpus(VectorSource(temp))
+
+##hapus retweet
+removeRT <- function(y) gsub("RT ", "", y)
+twitclean <- tm_map(data, removeRT)
+
+#mengubah huruf kecil
+twitclean <- tm_map(twitclean, tolower) 
+
+##hapus URL
+removeURL <- function(x) gsub("http[^[:space:]]*",  "", x)
+twitclean <- tm_map(twitclean, removeURL)
+
+##hapus New Line
+removeNL <- function(y) gsub("\n", " ", y)
+twitclean <- tm_map(twitclean, removeNL)
+
+##removepipe
+removepipe <- function(z) gsub("<[^>]+>", "", z)
+twitclean <- tm_map(twitclean, removepipe)
+
+#hapus Mention
+removeUN <- function(z) gsub("@\\S+", "", z)
+twitclean <- tm_map(twitclean, removeUN)
+
+#hapus Hastag
+removeHS <- function(z) gsub("#\\S+", "", z)
+twitclean <- tm_map(twitclean, removeHS)
+
+#hapus &amp
+removeamp <- function(y) gsub("&amp;", "", y)
+twitclean <- tm_map(twitclean, removeamp)
+
+#tanda baca
+twitclean <- tm_map(twitclean, removePunctuation) 
+
+#hapus space dll
+remove.all <- function(xy) gsub("[^[:alpha:][:space:]]*", "", xy)
+twitclean <- tm_map(twitclean,remove.all)
+
+
+#stopwords
+myStopwords <- readLines("stopword_en.csv", warn = FALSE)
+twitclean <- tm_map(twitclean,removeWords,myStopwords)
+
+#hapus space dll
+remove.all <- function(xy) gsub("[^[:alpha:][:space:]]*", "", xy)
+twitclean <- tm_map(twitclean,remove.all)
+
+twitclean<-twitclean %>%
+    tm_map(removeWords,stopwords(kind="en"))%>%
+    tm_map(stripWhitespace)
+
+#cek hasil sementara
+inspect(twitclean[1:10])
+
+
+try.error = function(x)
+{
+  # create missing value
+  y = NA
+  # tryCatch error
+  try_error = tryCatch(tolower(x), error=function(e) e)
+  # if not an error
+  if (!inherits(try_error, "error"))
+    y = tolower(x)
+  # result
+  return(y)
+}
+
+# lower case using try.error with sapply 
+twitclean = sapply(twitclean, try.error)
+# remove NAs in some_txt
+twitclean = twitclean[!is.na(twitclean)]
+names(twitclean) = NULL
+
+# data data yg sudah bersih namun masih duplicate 
+dataclean<-data.frame(text=unlist(sapply(twitclean, `[`)), stringsAsFactors=F)
+ambil <- tweetpilpres %>% select(score,polarity)
+gabung <- cbind(dataclean,ambil)
+write.csv(gabung,'dataclean.csv')
+
+dupli<-read.csv("dataclean.csv",header = TRUE)
+dupli<-dupli[!duplicated(dupli[,c("text")]),]
+View(dupli)
+write.csv(dupli,'dataclean.csv')
+```
+
+```{r}
+
+dff<-read.csv("dataclean.csv")
+
+jumtes <- round(length(dff$text) * (75/100))
+jumtrain <- round(length(dff$text) * (25/100))
+jumtes
+jumtrain
+totaldata<-length(dff$text)
+totaldata
+```
+```{r}
+yelp_labelled <- read.csv("dataclean.csv")
+#yelp_labelled$score <- factor(yelp_labelled$score)
+yelp_labelled$polarity <- factor(yelp_labelled$polarity)
+
+# Check the counts of positive and negative scores
+
+table(yelp_labelled$polarity)
+
+
+
+```
+```{r}
+# Create a corpus from the sentences
+yelp_corpus <- VCorpus(VectorSource(yelp_labelled$text))
+
+# create a document-term sparse matrix directly from the corpus
+yelp_dtm <- DocumentTermMatrix(yelp_corpus, control = list(
+  tolower = TRUE,
+  removeNumbers = TRUE,
+  stopwords = TRUE,
+  removePunctuation = TRUE,
+  stemming = TRUE
+))
+
+# creating training and test datasets
+yelp_dtm_train <- yelp_dtm[1:jumtrain, ]
+yelp_dtm_test  <- yelp_dtm[(jumtrain+1):totaldata, ]
+
+# also save the labels
+#yelp_train_labels_score <- yelp_labelled[1:jumtrain, ]$score
+#yelp_test_labels_score  <- yelp_labelled[(jumtrain+1):totaldata, ]$score
+  
+  #polarity
+yelp_train_labels_pol <- yelp_labelled[1:jumtrain, ]$polarity
+yelp_test_labels_pol  <- yelp_labelled[(jumtrain+1):totaldata, ]$polarity
+
+# check that the proportion of spam is similar
+
+prop.table(table(yelp_train_labels_pol))
+
+#prop.table(table(yelp_train_labels_score))
+```
+
+```{r}
+rm(yelp_dtm_train)
+rm(yelp_dtm_test)
+rm(yelp_train_labels_score)
+rm(yelp_test_labels_score)
+
+# Create random samples
+set.seed(123)
+train_index <- sample(totaldata, jumtrain)
+
+yelp_train <- yelp_labelled[-train_index, ]
+yelp_test  <- yelp_labelled[train_index, ]
+
+# check the proportion of class variable
+prop.table(table(yelp_train$score))
+prop.table(table(yelp_train$polarity))
+
+train_corpus <- VCorpus(VectorSource(yelp_train$text))
+test_corpus <- VCorpus(VectorSource(yelp_test$text))
+```
+
+```{r}
+positive <- subset(yelp_train, polarity == "Positif")
+negative  <- subset(yelp_train, polarity == "Negatif")
+Netral  <- subset(yelp_train, polarity == "Netral")
+
+
+wordcloud(positive$text, max.words = 40, scale = c(3, 0.5))
+wordcloud(negative$text, max.words = 40, scale = c(3, 0.5))
+wordcloud(Netral$text, max.words = 40, scale = c(3, 0.5))
+
+```
+
+```{r}
+
+train_dtm <- DocumentTermMatrix(train_corpus, control = list(
+  tolower = TRUE,
+  removeNumbers = TRUE,
+  removePunctuation = TRUE,
+  stemming = TRUE
+))
+
+test_dtm <- DocumentTermMatrix(test_corpus, control = list(
+  tolower = TRUE,
+  removeNumbers = TRUE,
+  removePunctuation = TRUE,
+  stemming = TRUE
+
+))
+
+train_dtm
+dtm_matrix = as.matrix(test_dtm)
+
+
+```
+```{r}
+# fungsi untuk mengubah nilai 0 dan 1 menjadi no dan yes
+convert_counts <- function(x) {
+ case_when(x<0 ~ "Negatif" , x>0 ~ "Positif" , TRUE ~ "Netral")
+}
+
+# apply() convert_counts() to columns of train/test data
+train_dtm_binary <- apply(train_dtm,  2, convert_counts)
+test_dtm_binary  <- apply(test_dtm,   2, convert_counts)
+glimpse(train_dtm_binary)
+length(train_dtm_binary)
+```
+```{r}
+View(yelp_train)
+```
+
+```{r}
+
+yelp_classifier <- naiveBayes(train_dtm_binary, yelp_train$polarity ,laplace =0 )
+
+yelp_test_pred <- predict(yelp_classifier, test_dtm_binary)
+
+head(yelp_test_pred)
+library(gmodels)
+CrossTable(yelp_test_pred, yelp_test$polarity,
+           prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
+           dnn = c('predicted', 'actual'))
+# mengecek akurasi
+conf <- confusionMatrix(yelp_test_pred, yelp_test$polarity)
+conf
+conf$overall['Accuracy']
+
+
+```
+```{r}
+
+View(yelp_classifier)
+```
+
+```{r}
+#digunakan untuk membaca file csv yang sudah di cleaning data
+
+review <- as.character(yelp_labelled$text) 
+#digunakan untuk mengeset variabel cloumn text menjadi char
+
+
+test<-get_nrc_sentiment(review ,language = "english" )
+review_combine<-cbind(review,test)
+
+barplot(colSums(test),col=rainbow(10),ylab='count',main='sentiment analisis')
+View(review_combine)
+```
+
+```{r}
+corpus<-Corpus(VectorSource(yelp_labelled$text))
+wordcloud(corpus,min.freq = 4, ,max.words=100,random.order=F,colors=brewer.pal(8,"Dark2"))
+
+```
+
+```{r}
+ggplot(yelp_labelled, aes(x=polarity)) +
+  geom_bar(aes(y=..count.., fill=polarity)) +
+  scale_fill_brewer(palette="Set1") +
+  labs(x="polarity categories", y="number of tweets") +
+  labs(title = "Sentiment Analysis #USA Election",
+       plot.title = element_text(size=12))
+
+
+##plot Joe Biden
+biden<-yelp_labelled %>% filter(str_detect(text, "joe") | str_detect(text, "biden" ))
+ggplot(biden, aes(x=polarity)) +
+  geom_bar(aes(y=..count.., fill=polarity)) +
+  scale_fill_brewer(palette="Set1") +
+  labs(x="polarity categories", y="number of tweets") +
+  labs(title = "Sentiment Analysis Joe Biden",
+       plot.title = element_text(size=12))
+
+
+
+##plot Donald Trump
+trump<-yelp_labelled %>% filter(str_detect(text, "donald") | str_detect(text, "trump" ))
+ggplot(trump, aes(x=polarity)) +
+  geom_bar(aes(y=..count.., fill=polarity)) +
+  scale_fill_brewer(palette="Set1") +
+  labs(x="polarity categories", y="number of tweets") +
+  labs(title = "Sentiment Analysis Donald Trump",
+       plot.title = element_text(size=12))
+
+
+
+##plot Republican Party
+republican<-yelp_labelled %>% filter(str_detect(text, "republican"))
+ggplot(republican, aes(x=polarity)) +
+  geom_bar(aes(y=..count.., fill=polarity)) +
+  scale_fill_brewer(palette="Set1") +
+  labs(x="polarity categories", y="number of tweets") +
+  labs(title = "Sentiment Analysis Republican",
+       plot.title = element_text(size=12))
+
+##plot democratic Party
+democratic<-yelp_labelled %>% filter(str_detect(text, "democrats"))
+ggplot(democratic, aes(x=polarity)) +
+  geom_bar(aes(y=..count.., fill=polarity)) +
+  scale_fill_brewer(palette="Set1") +
+  labs(x="polarity categories", y="number of tweets") +
+  labs(title = "Sentiment Analysis democratic",
+       plot.title = element_text(size=12))
+
+```
+
+```{r}
+{
+  dtm<-TermDocumentMatrix(yelp_labelled)
+  m<-as.matrix(dtm)
+  v<-sort(rowSums(m),decreasing = TRUE)
+  tweetMentah<-data.frame(word=names(v),freq=v)
+}
+
+batas<-head(tweetMentah,n=10)
+df<-batas %>% ggplot(aes(x=freq, y=word ,fill=word)) + geom_col()+theme(legend.position = "none" )
+df
+```
+
+```{r}
+library(shiny)
+library(shinydashboard)
+library(here)
+library(vroom)
+library(dplyr)
+library(SnowballC)
+library(ggplot2)
+library(plotly)
+library(DT)
+library(sass)
+library(ECharts2Shiny)
+library(wordcloud)
+library(tm)
+library(RColorBrewer)
+library(memoise)
+label<-vroom(here("Labeling Data Pilpres.csv"))
+biden1<-vroom(here("data-raw/bidentwt.csv"))
+trump1<-vroom(here("data-raw/trumptwt.csv"))
+allraw<-vroom(here("data-raw/data-raw.csv"))
+labelwc<-data.frame(label)
+labelwc.Corpus<-Corpus(VectorSource((labelwc$text)))
+labelwc.Clean<-tm_map(labelwc.Corpus, PlainTextDocument)
+labelwc.Clean<-tm_map(labelwc.Corpus,tolower)
+labelwc.Clean<-tm_map(labelwc.Clean,removeNumbers)
+labelwc.Clean<-tm_map(labelwc.Clean,removeWords,stopwords("english"))
+labelwc.Clean<-tm_map(labelwc.Clean,removePunctuation)
+labelwc.Clean<-tm_map(labelwc.Clean,stripWhitespace)
+labelwc.Clean<-tm_map(labelwc.Clean,stemDocument)
+df <- data.frame(table(label$polarity))
+biden1<- biden1[c(1,2,4,6,9)]
+trump1<- trump1[c(1,2,4,6,9)]
+allraw<- allraw[c(1,2,4,6,9)]
+
+```
+
+```{r}
+
+
+labelwc.Corpus<-Corpus(VectorSource(labelwc$text))
+ui <- dashboardPage(
+  dashboardHeader(title = "Pilpres US 2024"),
+  dashboardSidebar(sidebarMenu(
+      menuItem("Labeling", tabName = "Labeling", icon = icon("dashboard")),
+      menuItem("Emotions ", tabName = "Emotions", icon = icon("dashboard")),
+       menuItem("Word ", tabName = "Word", icon = icon("dashboard")),
+      menuItem("Database", tabName = "db", icon = icon("database"))
+    
+    )),
+  
+  dashboardBody(
+    tabItems(
+      # First tab content
+      tabItem(tabName = "Labeling",h2("Analisa Pilpres US 2024"),
+        fluidRow(
+          box(height = 450, width = 6,title = "Histogram Trump",
+        plotOutput('his1'),
+      ), 
+      box(height = 450, width = 6,title = "Histogram Biden",
+        plotOutput('his2'),
+      ),
+       box(height = 450, width = 6,title = "Histogram Republik",
+        plotOutput('his3'),
+      ),
+       box(height = 450, width = 6,title = "Histogram Demokrat",
+        plotOutput('his4'),
+      ),
+       box(height = 450, width = 6,title = "Histogram Tanggapan Umum",
+           plotOutput("his5"),
+        ),
+      
+      
+  
+        )
+      ),
+      tabItem(tabName = "Emotions",h2("Analisi Emotions"),
+        fluidRow(
+        box(height = 450, width = 6,title = "Histogram Emosi",
+           plotOutput("emos1"),
+        ),
+       
+      ),
+         
+        ),
+       
+      # First tab content
+      tabItem(tabName = "Word",h2("Visualisasi Word"),
+        fluidRow(
+                 box(title = "WordCloud Pilpres",
+         plotOutput("plot"),
+),
+          box(
+            title = "Controls",
+             sliderInput("freq",
+                  "Minimum Frequency:",
+                  min = 1,  max = 100, value = 15),
+             sliderInput("max",
+                  "Maximum Number of Words:",
+                  min = 1,  max = 1000,  value = 100)
+          ),
+
+   box(height = 600, width = 10,title = "10 Kata Teratas",
+           plotOutput("plot2"),
+         ),
+        
+),
+         
+        ),
+
+      # Second tab content
+      tabItem(tabName = "db",
+        h4("Database Tanggapan"),
+       fluidRow(tabBox(id="tabchart1",
+                 tabPanel("BidenRaw",DT::dataTableOutput("Tab1", height = "700px"), width = 9),
+                 tabPanel("TrumpRaw",DT::dataTableOutput("Tab2", height = "700px"), width = 9),
+                 tabPanel("DataLabeling",DT::dataTableOutput("Tab3", height = "700px"), width = 9),
+                 tabPanel("UmumRaw",DT::dataTableOutput("Tab4", height = "700px"), width = 9),
+                
+                 width = 12)),
+      )
+      
+ 
+    )
+  )
+)
+
+```
+
+
+```{r server}
+server<-shinyServer(function(input, output,session){
+  # reads the data 
+# makes the cuisine selection
+# Returns subset of data to be used for the neighborhood wordcloud
+output$his1 <- renderPlot({
+  ggplot(trump, aes(x=polarity)) +
+  geom_bar(aes(y=..count.., fill=polarity)) +
+  scale_fill_brewer(palette="Set1") +
+  labs(x="polarity categories", y="number of tweets") +
+  labs(title = "Sentiment Analysis Donald Trump",
+       plot.title = element_text(size=12))
+})
+output$his2 <- renderPlot({
+
+ggplot(biden, aes(x=polarity)) +
+  geom_bar(aes(y=..count.., fill=polarity)) +
+  scale_fill_brewer(palette="Set1") +
+  labs(x="polarity categories", y="number of tweets") +
+  labs(title = "Sentiment Analysis Joe Biden",
+       plot.title = element_text(size=12))
+})
+output$his3 <- renderPlot({
+  
+ggplot(republican, aes(x=polarity)) +
+  geom_bar(aes(y=..count.., fill=polarity)) +
+  scale_fill_brewer(palette="Set1") +
+  labs(x="polarity categories", y="number of tweets") +
+  labs(title = "Sentiment Analysis Republican",
+       plot.title = element_text(size=12))
+})
+output$his4 <- renderPlot({
+ 
+ggplot(democratic, aes(x=polarity)) +
+  geom_bar(aes(y=..count.., fill=polarity)) +
+  scale_fill_brewer(palette="Set1") +
+  labs(x="polarity categories", y="number of tweets") +
+  labs(title = "Sentiment Analysis democratic",
+       plot.title = element_text(size=12))
+})
+output$his5 <- renderPlot({
+ ggplot(hasil, aes(x=polarity)) +
+  geom_bar(aes(y=..count.., fill=polarity)) +
+  scale_fill_brewer(palette="Set1") +
+  labs(x="polarity categories", y="number of tweets") +
+  labs(title = "Sentiment Analysis #USA Election",
+       plot.title = element_text(size=12))
+})
+output$emos1 <- renderPlot({
+  barplot(colSums(s),col=rainbow(10),ylab='count',main='sentiment analisis')
+})
+  
+  output$plot  <- renderPlot({wordcloud(words = labelwc.Clean,scale=c(4,0.5), min.freq = input$freq,
+          max.words=input$max,
+          colors=brewer.pal(8, "Dark2"))
+ })
+  
+  output$plot2 <- renderPlot({
+  ggplot(batas,aes(x=freq, y=word ,fill=word)) + geom_col()+theme(legend.position = "none" )
+
+
+    
+  })
+  
+  
+  
+  
+  
+  
+  
+  #database
+   output$Tab1 <- DT::renderDataTable(DT::datatable({
+    data <-biden1 }))
+   output$Tab2 <- DT::renderDataTable(DT::datatable({
+    data <-trump1 }))
+   output$Tab3 <- DT::renderDataTable(DT::datatable({
+    data <-label }))
+   output$Tab4 <- DT::renderDataTable(DT::datatable({
+    data <-allraw }))
+})
+```
+
+```{r run-app}
+shinyApp(ui, server)
+```
